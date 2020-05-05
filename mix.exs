@@ -7,6 +7,9 @@ defmodule BcryptElixir.Mixfile do
   Bcrypt password hashing algorithm for Elixir
   """
 
+  defp elixirc_paths(:test), do: ~W[lib test/support]
+  defp elixirc_paths(_), do: ~W[lib]
+
   def project do
     [
       app: :bcrypt_elixir,
@@ -17,6 +20,7 @@ defmodule BcryptElixir.Mixfile do
       description: @description,
       package: package(),
       source_url: "https://github.com/riverrun/bcrypt_elixir",
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       dialyzer: [
         plt_file: {:no_warn, "priv/plts/dialyzer.plt"}
@@ -32,7 +36,11 @@ defmodule BcryptElixir.Mixfile do
 
   defp deps do
     [
-      {:comeonin, "~> 5.3"},
+      if :inet.gethostname() == {:ok, 'freebsd'} do
+        {:expassword, path: "~/elixir/expassword"}
+      else
+        {:expassword, git: "https://github.com/julp/expassword.git", branch: "master"}
+      end,
       {:elixir_make, "~> 0.6", runtime: false},
       {:ex_doc, "~> 0.20", only: :dev, runtime: false},
       {:dialyxir, "~> 1.0.0-rc.3", only: :dev, runtime: false}

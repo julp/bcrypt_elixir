@@ -267,6 +267,89 @@ static ERL_NIF_TERM bcrypt_checkpass_nif(ErlNifEnv *env, int argc, const ERL_NIF
 	return enif_make_int(env, 0);
 }
 
+#define BCRYPT_PREFIX "$2a"
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
+#define STR_LEN(str)	  (ARRAY_SIZE(str) - 1)
+#define STR_SIZE(str)	 (ARRAY_SIZE(str))
+
+#define ATOM(/*ErlNifEnv **/env, /*const char **/ string) \
+	enif_make_atom_len(env, string, STR_LEN(string))
+
+enum {
+	BCRYPT_OPTIONS_COST,
+	_BCRYPT_OPTIONS_COUNT,
+};
+
+static int/*bool*/ bcrypt_valid(const char *hash, int hash_size)
+{
+    return hash_size == (BCRYPT_HASHSPACE + 1) && 0 == memcmp(hash, BCRYPT_PREFIX, STR_LEN(BCRYPT_PREFIX));
+}
+
+static int/*bool*/ extract_cost_from_hash(const char *hash, int hash_size, int *cost)
+{
+	(void) hash_size;
+
+	return sscanf(hash, BCRYPT_PREFIX "$%d$", cost) > 0;
+}
+
+static ERL_NIF_TERM bcrypt_valid_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+	int hash_size;
+	char hash[BCRYPT_HASHSPACE + 1];
+
+	if (1 != argc || 0 == (hash_size = enif_get_string(env, argv[0], hash, sizeof(hash), ERL_NIF_LATIN1))) {
+		return enif_make_badarg(env);
+	}
+
+	return bcrypt_valid(hash, hash_size) ? ATOM(env, "true") : ATOM(env, "false");
+}
+
+static ERL_NIF_TERM bcrypt_get_options_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+	int cost, hash_size;
+	char hash[BCRYPT_HASHSPACE + 1];
+
+	if (1 != argc || 0 == (hash_size = enif_get_string(env, argv[0], hash, sizeof(hash), ERL_NIF_LATIN1))) {
+		return enif_make_badarg(env);
+	}
+	if (bcrypt_valid(hash, hash_size) && extract_cost_from_hash(hash, hash_size, &cost)) {
+		ERL_NIF_TERM options;
+		ERL_NIF_TERM pairs[2][_BCRYPT_OPTIONS_COUNT];
+
+		pairs[0][BCRYPT_OPTIONS_COST] = ATOM(env, "cost");
+		pairs[1][BCRYPT_OPTIONS_COST] = enif_make_int(env, cost);
+		enif_make_map_from_arrays(env, pairs[0], pairs[1], _BCRYPT_OPTIONS_COUNT, &options);
+
+		return enif_make_tuple2(env, ATOM(env, "ok"), options);
+	} else {
+		return enif_make_tuple2(env, ATOM(env, "error"), ATOM(env, "invalid"));
+	}
+}
+
+static ERL_NIF_TERM bcrypt_needs_rehash_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+	ERL_NIF_TERM value;
+	int old_cost, new_cost, hash_size;
+	char hash[BCRYPT_HASHSPACE + 1];
+
+	if (
+		2 != argc
+		|| 0 == (hash_size = enif_get_string(env, argv[0], hash, sizeof(hash), ERL_NIF_LATIN1))
+		|| !enif_is_map(env, argv[1])
+		|| !enif_get_map_value(env, argv[1], ATOM(env, "cost"), &value)
+		|| !enif_get_int(env, value, &new_cost)
+	) {
+		return enif_make_badarg(env);
+	}
+	if (bcrypt_valid(hash, hash_size) && extract_cost_from_hash(hash, hash_size, &old_cost)) {
+		// ok
+	} else {
+		old_cost = 0;
+	}
+
+	return old_cost != new_cost ? ATOM(env, "true") : ATOM(env, "false");
+}
+
 /*
  * internal utilities
  */
@@ -398,7 +481,10 @@ static ErlNifFunc bcrypt_nif_funcs[] =
 {
 	{"gensalt_nif", 3, bcrypt_gensalt_nif},
 	{"hash_nif", 2, bcrypt_hash_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-	{"checkpass_nif", 2, bcrypt_checkpass_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND}
+	{"checkpass_nif", 2, bcrypt_checkpass_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+	{"get_options_nif", 1, bcrypt_get_options_nif},
+	{"needs_rehash_nif", 2, bcrypt_needs_rehash_nif},
+	{"valid_nif", 1, bcrypt_valid_nif},
 };
 
 ERL_NIF_INIT(Elixir.Bcrypt.Base, bcrypt_nif_funcs, NULL, NULL, NULL, NULL)

@@ -47,7 +47,7 @@ defmodule Bcrypt do
   Hash the password with a salt which is randomly generated.
   """
 
-  use Comeonin
+  use ExPassword.Algorithm
 
   alias Bcrypt.Base
 
@@ -80,24 +80,50 @@ defmodule Bcrypt do
   The following examples show how to hash a password with a randomly-generated
   salt and then verify a password:
 
-      iex> hash = Bcrypt.hash_pwd_salt("password")
-      ...> Bcrypt.verify_pass("password", hash)
+      iex> hash = Bcrypt.hash("password")
+      ...> Bcrypt.verify?("password", hash)
       true
 
-      iex> hash = Bcrypt.hash_pwd_salt("password")
-      ...> Bcrypt.verify_pass("incorrect", hash)
+      iex> hash = Bcrypt.hash("password")
+      ...> Bcrypt.verify?("incorrect", hash)
       false
 
   """
-  @impl true
-  def hash_pwd_salt(password, opts \\ []) do
+  @impl ExPassword.Algorithm
+  def hash(password, opts \\ %{}) do
     Base.hash_password(
       password,
       gen_salt(
-        Keyword.get(opts, :log_rounds, Application.get_env(:bcrypt_elixir, :log_rounds, 12)),
-        Keyword.get(opts, :legacy, false)
+        Map.get(opts, :log_rounds, Application.get_env(:bcrypt_elixir, :log_rounds, 12)),
+        Map.get(opts, :legacy, false)
       )
     )
+  end
+
+  @doc ~S"""
+  TODO
+  """
+  @impl ExPassword.Algorithm
+  def get_options(hash) do
+    Base.get_options_nif(:binary.bin_to_list(hash))
+  end
+
+  @doc ~S"""
+  TODO
+  """
+  @impl ExPassword.Algorithm
+  def valid?(hash) do
+    hash
+    |> :binary.bin_to_list()
+    |> Base.valid_nif()
+  end
+
+  @doc ~S"""
+  TODO
+  """
+  @impl ExPassword.Algorithm
+  def needs_rehash?(hash, options) do
+    Base.needs_rehash_nif(:binary.bin_to_list(hash), options)
   end
 
   @doc """
@@ -106,10 +132,10 @@ defmodule Bcrypt do
 
   See the documentation for `hash_pwd_salt/2` for examples of using this function.
   """
-  @impl true
-  def verify_pass(password, stored_hash) do
+  @impl ExPassword.Algorithm
+  def verify?(password, stored_hash) do
     Base.checkpass_nif(:binary.bin_to_list(password), :binary.bin_to_list(stored_hash))
-    |> handle_verify
+    |> handle_verify()
   end
 
   defp handle_verify(0), do: true

@@ -53,6 +53,24 @@ defmodule Bcrypt.Base do
   def checkpass_nif(password, stored_hash)
   def checkpass_nif(_, _), do: :erlang.nif_error(:not_loaded)
 
+  @doc """
+  TODO
+  """
+  def get_options_nif(hash)
+  def get_options_nif(_), do: :erlang.nif_error(:not_loaded)
+
+  @doc """
+  TODO
+  """
+  def needs_rehash_nif(hash, options)
+  def needs_rehash_nif(_, _), do: :erlang.nif_error(:not_loaded)
+
+  @doc """
+  TODO
+  """
+  def valid_nif(hash)
+  def valid_nif(_), do: :erlang.nif_error(:not_loaded)
+
   defp load_nif do
     path = :filename.join(:code.priv_dir(:bcrypt_elixir), 'bcrypt_nif')
     :erlang.load_nif(path, 0)

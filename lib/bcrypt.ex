@@ -139,9 +139,5 @@ defmodule Bcrypt do
   @impl ExPassword.Algorithm
   def verify?(password, stored_hash) do
     Base.checkpass_nif(:binary.bin_to_list(password), :binary.bin_to_list(stored_hash))
-    |> handle_verify()
   end
-
-  defp handle_verify(0), do: true
-  defp handle_verify(_), do: false
 end

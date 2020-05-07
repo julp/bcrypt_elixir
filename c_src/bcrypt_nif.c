@@ -60,6 +60,14 @@
 #include "erl_nif.h"
 #include "blf.h"
 
+#define BCRYPT_PREFIX "$2*$"
+#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
+#define STR_LEN(str)	  (ARRAY_SIZE(str) - 1)
+#define STR_SIZE(str)	 (ARRAY_SIZE(str))
+
+#define ATOM(/*ErlNifEnv **/env, /*const char **/ string) \
+	enif_make_atom_len(env, string, STR_LEN(string))
+
 /* This implementation is adaptable to current computing power.
  * You can have up to 2^31 rounds which should be enough for some
  * time to come.
@@ -252,29 +260,23 @@ static ERL_NIF_TERM bcrypt_checkpass_nif(ErlNifEnv *env, int argc, const ERL_NIF
 	char hash[BCRYPT_HASHSPACE + 1];
 	hash[BCRYPT_HASHSPACE] = '\0';
 
-	if (argc != 2 || !enif_get_string(env, argv[0], pass, sizeof(pass), ERL_NIF_LATIN1) ||
-			!enif_get_string(env, argv[1], goodhash, sizeof(goodhash), ERL_NIF_LATIN1))
+	if (
+		2 != argc
+		|| !enif_get_string(env, argv[0], pass, sizeof(pass), ERL_NIF_LATIN1)
+		|| !enif_get_string(env, argv[1], goodhash, sizeof(goodhash), ERL_NIF_LATIN1)
+	) {
 		return enif_make_badarg(env);
+	} else {
+		int/*bool*/ match;
 
-	if (bcrypt_hashpass((const char *)pass, (const char *)goodhash, hash, sizeof(hash)) != 0)
-		return enif_make_int(env, -1);
-
-	if (strlen(hash) != strlen(goodhash) || secure_compare((const uint8_t *)hash,
-				(const uint8_t *)goodhash, strlen(goodhash)) != 0) {
-		return enif_make_int(env, -1);
-	}
-
-	secure_bzero(hash, sizeof(hash));
-	return enif_make_int(env, 0);
+		match = 0 == bcrypt_hashpass((const char *) pass, (const char *) goodhash, hash, sizeof(hash))
+			&& strlen(hash) == strlen(goodhash)
+			&& 0 == secure_compare((const uint8_t *) hash, (const uint8_t *) goodhash, strlen(goodhash))
+		;
+		secure_bzero(hash, sizeof(hash));
+		return match ? ATOM(env, "true") : ATOM(env, "false");
+  }
 }
-
-#define BCRYPT_PREFIX "$2*$"
-#define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
-#define STR_LEN(str)	  (ARRAY_SIZE(str) - 1)
-#define STR_SIZE(str)	 (ARRAY_SIZE(str))
-
-#define ATOM(/*ErlNifEnv **/env, /*const char **/ string) \
-	enif_make_atom_len(env, string, STR_LEN(string))
 
 enum {
 	BCRYPT_OPTIONS_COST,

@@ -267,7 +267,7 @@ static ERL_NIF_TERM bcrypt_checkpass_nif(ErlNifEnv *env, int argc, const ERL_NIF
 	return enif_make_int(env, 0);
 }
 
-#define BCRYPT_PREFIX "$2a"
+#define BCRYPT_PREFIX "$2*"
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define STR_LEN(str)	  (ARRAY_SIZE(str) - 1)
 #define STR_SIZE(str)	 (ARRAY_SIZE(str))
@@ -282,14 +282,15 @@ enum {
 
 static int/*bool*/ bcrypt_valid(const char *hash, int hash_size)
 {
-    return hash_size == (BCRYPT_HASHSPACE + 1) && 0 == memcmp(hash, BCRYPT_PREFIX, STR_LEN(BCRYPT_PREFIX));
+    return hash_size == (BCRYPT_HASHSPACE + 1) && '$' == hash[0] && '2' == hash[1] && ('a' == hash[2] || 'b' == hash[2]);
 }
 
 static int/*bool*/ extract_cost_from_hash(const char *hash, int hash_size, int *cost)
 {
 	(void) hash_size;
 
-	return sscanf(hash, BCRYPT_PREFIX "$%d$", cost) > 0;
+	// NOTE: length is checked before by a call to bcrypt_valid
+	return sscanf(hash + STR_LEN(BCRYPT_PREFIX), "$%d$", cost) > 0;
 }
 
 static ERL_NIF_TERM bcrypt_valid_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])

@@ -70,6 +70,7 @@
 #define BCRYPT_MAXPASS 256	/* 256, not 73, to replicate behavior for the old 2a prefix */
 #define BCRYPT_WORDS 6		/* Ciphertext words */
 #define BCRYPT_MINLOGROUNDS 4	/* we have log2(rounds) in salt */
+#define BCRYPT_MAXLOGROUNDS 31
 
 #define	BCRYPT_SALTSPACE	(7 + (BCRYPT_MAXSALT * 4 + 2) / 3)
 #define	BCRYPT_HASHSPACE	60
@@ -104,10 +105,10 @@ static ERL_NIF_TERM bcrypt_gensalt_nif(ErlNifEnv *env, int argc, const ERL_NIF_T
  */
 static int bcrypt_initsalt(int log_rounds, uint8_t *csalt, char *salt, uint8_t minor)
 {
-	if (log_rounds < 4)
-		log_rounds = 4;
-	else if (log_rounds > 31)
-		log_rounds = 31;
+	if (log_rounds < BCRYPT_MINLOGROUNDS)
+		log_rounds = BCRYPT_MINLOGROUNDS;
+	else if (log_rounds > BCRYPT_MAXLOGROUNDS)
+		log_rounds = BCRYPT_MAXLOGROUNDS;
 
 	snprintf(salt, BCRYPT_SALTSPACE, "$2%c$%2.2u$", minor, log_rounds);
 	encode_base64(salt + 7, csalt, BCRYPT_MAXSALT);
@@ -169,7 +170,7 @@ static int bcrypt_hashpass(const char *key, const char *salt, char *encrypted,
 			!isdigit((unsigned char)salt[1]) || salt[2] != '$')
 		goto inval;
 	logr = (salt[1] - '0') + ((salt[0] - '0') * 10);
-	if (logr < BCRYPT_MINLOGROUNDS || logr > 31)
+	if (logr < BCRYPT_MINLOGROUNDS || logr > BCRYPT_MAXLOGROUNDS)
 		goto inval;
 	/* Computer power doesn't increase linearly, 2^x should be fine */
 	rounds = 1U << logr;
@@ -267,7 +268,7 @@ static ERL_NIF_TERM bcrypt_checkpass_nif(ErlNifEnv *env, int argc, const ERL_NIF
 	return enif_make_int(env, 0);
 }
 
-#define BCRYPT_PREFIX "$2*"
+#define BCRYPT_PREFIX "$2*$"
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define STR_LEN(str)	  (ARRAY_SIZE(str) - 1)
 #define STR_SIZE(str)	 (ARRAY_SIZE(str))
@@ -280,40 +281,45 @@ enum {
 	_BCRYPT_OPTIONS_COUNT,
 };
 
-static int/*bool*/ bcrypt_valid(const char *hash, int hash_size)
+static int/*bool*/ bcrypt_valid(const ErlNifBinary *hash)
 {
-    return hash_size == (BCRYPT_HASHSPACE + 1) && '$' == hash[0] && '2' == hash[1] && ('a' == hash[2] || 'b' == hash[2]);
+	return hash->size == BCRYPT_HASHSPACE && '$' == hash->data[0] && '2' == hash->data[1] && ('a' == hash->data[2] || 'b' == hash->data[2]);
 }
 
-static int/*bool*/ extract_cost_from_hash(const char *hash, int hash_size, int *cost)
+static int/*bool*/ extract_cost_from_hash(const ErlNifBinary *hash, int *cost)
 {
-	(void) hash_size;
-
 	// NOTE: length is checked before by a call to bcrypt_valid
-	return sscanf(hash + STR_LEN(BCRYPT_PREFIX), "$%d$", cost) > 0;
+	unsigned const char * const r = hash->data + STR_LEN(BCRYPT_PREFIX);
+
+	if (isdigit(r[0]) && isdigit(r[1])) {
+		*cost = (r[1] - '0') + ((r[0] - '0') * 10);
+	} else {
+		*cost = 0;
+	}
+
+	return *cost >= BCRYPT_MINLOGROUNDS && *cost <= BCRYPT_MAXLOGROUNDS;
 }
 
 static ERL_NIF_TERM bcrypt_valid_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
-	int hash_size;
-	char hash[BCRYPT_HASHSPACE + 1];
+	ErlNifBinary hash;
 
-	if (1 != argc || 0 == (hash_size = enif_get_string(env, argv[0], hash, sizeof(hash), ERL_NIF_LATIN1))) {
+	if (1 != argc || !enif_inspect_binary(env, argv[0], &hash)) {
 		return enif_make_badarg(env);
 	}
 
-	return bcrypt_valid(hash, hash_size) ? ATOM(env, "true") : ATOM(env, "false");
+	return bcrypt_valid(&hash) ? ATOM(env, "true") : ATOM(env, "false");
 }
 
 static ERL_NIF_TERM bcrypt_get_options_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
-	int cost, hash_size;
-	char hash[BCRYPT_HASHSPACE + 1];
+	int cost;
+	ErlNifBinary hash;
 
-	if (1 != argc || 0 == (hash_size = enif_get_string(env, argv[0], hash, sizeof(hash), ERL_NIF_LATIN1))) {
+	if (1 != argc || !enif_inspect_binary(env, argv[0], &hash)) {
 		return enif_make_badarg(env);
 	}
-	if (bcrypt_valid(hash, hash_size) && extract_cost_from_hash(hash, hash_size, &cost)) {
+	if (bcrypt_valid(&hash) && extract_cost_from_hash(&hash, &cost)) {
 		ERL_NIF_TERM options;
 		ERL_NIF_TERM pairs[2][_BCRYPT_OPTIONS_COUNT];
 
@@ -329,20 +335,20 @@ static ERL_NIF_TERM bcrypt_get_options_nif(ErlNifEnv *env, int argc, const ERL_N
 
 static ERL_NIF_TERM bcrypt_needs_rehash_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
+	ErlNifBinary hash;
 	ERL_NIF_TERM value;
-	int old_cost, new_cost, hash_size;
-	char hash[BCRYPT_HASHSPACE + 1];
+	int old_cost, new_cost;
 
 	if (
 		2 != argc
-		|| 0 == (hash_size = enif_get_string(env, argv[0], hash, sizeof(hash), ERL_NIF_LATIN1))
+		|| !enif_inspect_binary(env, argv[0], &hash)
 		|| !enif_is_map(env, argv[1])
 		|| !enif_get_map_value(env, argv[1], ATOM(env, "cost"), &value)
 		|| !enif_get_int(env, value, &new_cost)
 	) {
 		return enif_make_badarg(env);
 	}
-	if (bcrypt_valid(hash, hash_size) && extract_cost_from_hash(hash, hash_size, &old_cost)) {
+	if (bcrypt_valid(&hash) && extract_cost_from_hash(&hash, &old_cost)) {
 		// ok
 	} else {
 		old_cost = 0;

@@ -15,20 +15,6 @@ This version is based on the OpenBSD version of Bcrypt and supports
 the `$2b$` and `$2a$` prefixes. For advice on how to use hashes with
 the `$2y$` prefix, see [this issue](https://github.com/riverrun/comeonin/issues/103).
 
-## Changes in version 2
-
-In version 2.0, bcrypt_elixir has been updated to implement the Comeonin
-and Comeonin.PasswordHash behaviours.
-
-It now has the following two additional convenience functions:
-
-* `add_hash/2`
-  * same as Comeonin.Bcrypt.add_hash in Comeonin version 4
-  * hashes a password and returns a map with the password hash
-* `check_pass/3`
-  * same as Comeonin.Bcrypt.check_pass in Comeonin version 4
-  * takes a user struct and password as input and verifies the password
-
 ## Installation
 
 1. Add bcrypt_elixir to the `deps` section of your mix.exs file:

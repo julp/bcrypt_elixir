@@ -37,9 +37,9 @@ defmodule BcryptElixir.Mixfile do
   defp deps do
     [
       if :inet.gethostname() == {:ok, 'freebsd'} do
-        {:expassword, path: "~/elixir/expassword"}
+        {:expassword_algorithm, path: "~/elixir/expassword/expassword_algorithm"}
       else
-        {:expassword, git: "https://github.com/julp/expassword.git", branch: "master"}
+        {:expassword_algorithm, ">= 0.0.0"}
       end,
       {:elixir_make, "~> 0.6", runtime: false},
       {:ex_doc, "~> 0.20", only: :dev, runtime: false},

@@ -105,7 +105,9 @@ defmodule Bcrypt do
   """
   @impl ExPassword.Algorithm
   def get_options(hash) do
-    Base.get_options_nif(:binary.bin_to_list(hash))
+    hash
+    #|> :binary.bin_to_list()
+    |> Base.get_options_nif()
   end
 
   @doc ~S"""
@@ -114,7 +116,7 @@ defmodule Bcrypt do
   @impl ExPassword.Algorithm
   def valid?(hash) do
     hash
-    |> :binary.bin_to_list()
+    #|> :binary.bin_to_list()
     |> Base.valid_nif()
   end
 
@@ -123,7 +125,9 @@ defmodule Bcrypt do
   """
   @impl ExPassword.Algorithm
   def needs_rehash?(hash, options) do
-    Base.needs_rehash_nif(:binary.bin_to_list(hash), options)
+    hash
+    #|> :binary.bin_to_list()
+    |> Base.needs_rehash_nif(options)
   end
 
   @doc """

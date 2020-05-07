@@ -127,13 +127,12 @@ static int bcrypt_initsalt(int log_rounds, uint8_t *csalt, char *salt, uint8_t m
 /*
  * The core bcrypt function.
  */
-static int bcrypt_hashpass(const char *key, const char *salt, char *encrypted,
+static int bcrypt_hashpass(const char *key, size_t key_len, const char *salt, char *encrypted,
 		size_t encryptedlen)
 {
 	blf_ctx state;
 	uint32_t rounds, i, k;
 	uint16_t j;
-	size_t key_len;
 	uint8_t salt_len, logr, minor;
 	uint8_t ciphertext[4 * BCRYPT_WORDS] = "OrpheanBeholderScryDoubt";
 	uint8_t csalt[BCRYPT_MAXSALT];
@@ -153,14 +152,13 @@ static int bcrypt_hashpass(const char *key, const char *salt, char *encrypted,
 	/* Check for minor versions */
 	switch ((minor = salt[1])) {
 		case 'a':
-			key_len = (uint8_t)(strlen(key) + 1);
+			key_len = (uint8_t) (key_len + 1);
 			break;
 		case 'b':
 			/* strlen() returns a size_t, but the function calls
 			 * below result in implicit casts to a narrower integer
 			 * type, so cap key_len at the actual maximum supported
 			 * length here to avoid integer wraparound */
-			key_len = strlen(key);
 			if (key_len > 72)
 				key_len = 72;
 			key_len++; /* include the NUL */
@@ -242,11 +240,11 @@ static ERL_NIF_TERM bcrypt_hash_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM
 	ERL_NIF_TERM output;
 	unsigned char *output_data = enif_make_new_binary(env, BCRYPT_HASHSPACE, &output);
 
-	if (argc != 2 || !enif_get_string(env, argv[0], pass, sizeof(pass), ERL_NIF_LATIN1) ||
-			!enif_get_string(env, argv[1], salt, sizeof(salt), ERL_NIF_LATIN1))
+	if (argc != 2 || !enif_get_string(env, argv[0], pass, STR_SIZE(pass), ERL_NIF_LATIN1) ||
+			!enif_get_string(env, argv[1], salt, STR_SIZE(salt), ERL_NIF_LATIN1))
 		return enif_make_badarg(env);
 
-	if (bcrypt_hashpass((const char *)pass, (const char *)salt,
+	if (bcrypt_hashpass((const char *)pass, strlen(pass), (const char *)salt,
 				(char *)output_data, BCRYPT_HASHSPACE) != 0)
 		return enif_make_badarg(env);
 
@@ -255,33 +253,32 @@ static ERL_NIF_TERM bcrypt_hash_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM
 
 static ERL_NIF_TERM bcrypt_checkpass_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
+	int pass_len;
+	ERL_NIF_TERM output;
+	ErlNifBinary goodhash;
 	char pass[BCRYPT_MAXPASS];
-	char goodhash[BCRYPT_HASHSPACE + 1];
-	char hash[BCRYPT_HASHSPACE + 1];
-	hash[BCRYPT_HASHSPACE] = '\0';
 
 	if (
 		2 != argc
-		|| !enif_get_string(env, argv[0], pass, sizeof(pass), ERL_NIF_LATIN1)
-		|| !enif_get_string(env, argv[1], goodhash, sizeof(goodhash), ERL_NIF_LATIN1)
+		|| (pass_len = enif_get_string(env, argv[0], pass, STR_SIZE(pass), ERL_NIF_LATIN1)) <= 0
+		|| !enif_inspect_binary(env, argv[1], &goodhash)
 	) {
-		return enif_make_badarg(env);
+		output = enif_make_badarg(env);
 	} else {
 		int/*bool*/ match;
+		char hash[BCRYPT_HASHSPACE + 1];
 
-		match = 0 == bcrypt_hashpass((const char *) pass, (const char *) goodhash, hash, sizeof(hash))
-			&& strlen(hash) == strlen(goodhash)
-			&& 0 == secure_compare((const uint8_t *) hash, (const uint8_t *) goodhash, strlen(goodhash))
+		hash[BCRYPT_HASHSPACE] = '\0';
+		match = 0 == bcrypt_hashpass((const char *) pass, (size_t) (pass_len - 1), (const char *) goodhash.data, hash, STR_SIZE(hash))
+			&& strlen(hash) == goodhash.size
+			&& 0 == secure_compare((const uint8_t *) hash, (const uint8_t *) goodhash.data, goodhash.size)
 		;
-		secure_bzero(hash, sizeof(hash));
-		return match ? ATOM(env, "true") : ATOM(env, "false");
+		secure_bzero(hash, STR_SIZE(hash));
+		output = match ? ATOM(env, "true") : ATOM(env, "false");
   }
-}
 
-enum {
-	BCRYPT_OPTIONS_COST,
-	_BCRYPT_OPTIONS_COUNT,
-};
+	return output;
+}
 
 static int/*bool*/ bcrypt_valid(const ErlNifBinary *hash)
 {
@@ -305,23 +302,31 @@ static int/*bool*/ extract_cost_from_hash(const ErlNifBinary *hash, int *cost)
 static ERL_NIF_TERM bcrypt_valid_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
 	ErlNifBinary hash;
+	ERL_NIF_TERM output;
 
 	if (1 != argc || !enif_inspect_binary(env, argv[0], &hash)) {
-		return enif_make_badarg(env);
+		output = enif_make_badarg(env);
+	} else {
+		output = bcrypt_valid(&hash) ? ATOM(env, "true") : ATOM(env, "false");
 	}
 
-	return bcrypt_valid(&hash) ? ATOM(env, "true") : ATOM(env, "false");
+	return output;
 }
+
+enum {
+	BCRYPT_OPTIONS_COST,
+	_BCRYPT_OPTIONS_COUNT,
+};
 
 static ERL_NIF_TERM bcrypt_get_options_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
 	int cost;
 	ErlNifBinary hash;
+	ERL_NIF_TERM output;
 
 	if (1 != argc || !enif_inspect_binary(env, argv[0], &hash)) {
-		return enif_make_badarg(env);
-	}
-	if (bcrypt_valid(&hash) && extract_cost_from_hash(&hash, &cost)) {
+		output = enif_make_badarg(env);
+	} else if (bcrypt_valid(&hash) && extract_cost_from_hash(&hash, &cost)) {
 		ERL_NIF_TERM options;
 		ERL_NIF_TERM pairs[2][_BCRYPT_OPTIONS_COUNT];
 
@@ -329,17 +334,19 @@ static ERL_NIF_TERM bcrypt_get_options_nif(ErlNifEnv *env, int argc, const ERL_N
 		pairs[1][BCRYPT_OPTIONS_COST] = enif_make_int(env, cost);
 		enif_make_map_from_arrays(env, pairs[0], pairs[1], _BCRYPT_OPTIONS_COUNT, &options);
 
-		return enif_make_tuple2(env, ATOM(env, "ok"), options);
+		output = enif_make_tuple2(env, ATOM(env, "ok"), options);
 	} else {
-		return enif_make_tuple2(env, ATOM(env, "error"), ATOM(env, "invalid"));
+		output = enif_make_tuple2(env, ATOM(env, "error"), ATOM(env, "invalid"));
 	}
+
+	return output;
 }
 
 static ERL_NIF_TERM bcrypt_needs_rehash_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
+	int new_cost;
 	ErlNifBinary hash;
-	ERL_NIF_TERM value;
-	int old_cost, new_cost;
+	ERL_NIF_TERM value, output;
 
 	if (
 		2 != argc
@@ -348,15 +355,19 @@ static ERL_NIF_TERM bcrypt_needs_rehash_nif(ErlNifEnv *env, int argc, const ERL_
 		|| !enif_get_map_value(env, argv[1], ATOM(env, "cost"), &value)
 		|| !enif_get_int(env, value, &new_cost)
 	) {
-		return enif_make_badarg(env);
-	}
-	if (bcrypt_valid(&hash) && extract_cost_from_hash(&hash, &old_cost)) {
-		// ok
+		output = enif_make_badarg(env);
 	} else {
-		old_cost = 0;
+		int old_cost;
+
+		if (bcrypt_valid(&hash) && extract_cost_from_hash(&hash, &old_cost)) {
+			// OK, NOP
+		} else {
+			old_cost = 0;
+		}
+		output = old_cost != new_cost ? ATOM(env, "true") : ATOM(env, "false");
 	}
 
-	return old_cost != new_cost ? ATOM(env, "true") : ATOM(env, "false");
+	return output;
 }
 
 /*
@@ -488,12 +499,12 @@ static int secure_compare(const uint8_t *b1, const uint8_t *b2, size_t len)
 
 static ErlNifFunc bcrypt_nif_funcs[] =
 {
-	{"gensalt_nif", 3, bcrypt_gensalt_nif},
+	{"gensalt_nif", 3, bcrypt_gensalt_nif, 0},
 	{"hash_nif", 2, bcrypt_hash_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
 	{"checkpass_nif", 2, bcrypt_checkpass_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
-	{"get_options_nif", 1, bcrypt_get_options_nif},
-	{"needs_rehash_nif", 2, bcrypt_needs_rehash_nif},
-	{"valid_nif", 1, bcrypt_valid_nif},
+	{"get_options_nif", 1, bcrypt_get_options_nif, 0},
+	{"needs_rehash_nif", 2, bcrypt_needs_rehash_nif, 0},
+	{"valid_nif", 1, bcrypt_valid_nif, 0},
 };
 
 ERL_NIF_INIT(Elixir.Bcrypt.Base, bcrypt_nif_funcs, NULL, NULL, NULL, NULL)

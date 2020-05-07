@@ -6,6 +6,8 @@ defmodule Bcrypt.BaseTest do
   def check_vectors(data) do
     for {password, salt, stored_hash} <- data do
       assert Base.hash_password(password, salt) == stored_hash
+      # NOTE: make sure in particular for really long and truncated password that they match
+      assert Bcrypt.verify?(password, stored_hash)
     end
   end
 
@@ -37,7 +39,7 @@ defmodule Bcrypt.BaseTest do
         "$2a$05$abcdefghijklmnopqrstuu5s2v8.iXieOjg/.AySBTTZIIVFJeBui"
       }
     ]
-    |> check_vectors
+    |> check_vectors()
   end
 
   test "OpenBSD Bcrypt tests" do
@@ -68,7 +70,7 @@ defmodule Bcrypt.BaseTest do
         "$2b$05$CCCCCCCCCCCCCCCCCCCCC.6.O1dLNbjod2uo0DVcW.jHucKbPDdHS"
       }
     ]
-    |> check_vectors
+    |> check_vectors()
   end
 
   test "Long password $2b$ prefix tests" do
@@ -88,7 +90,7 @@ defmodule Bcrypt.BaseTest do
         "$2b$05$CCCCCCCCCCCCCCCCCCCCC.XxrQqgBi/5Sxuq9soXzDtjIZ7w5pMfK"
       }
     ]
-    |> check_vectors
+    |> check_vectors()
   end
 
   test "Long password old $2a$ prefix tests" do
@@ -108,7 +110,7 @@ defmodule Bcrypt.BaseTest do
         "$2a$05$CCCCCCCCCCCCCCCCCCCCC.6.O1dLNbjod2uo0DVcW.jHucKbPDdHS"
       }
     ]
-    |> check_vectors
+    |> check_vectors()
   end
 
   test "known non-ascii characters tests" do
@@ -119,7 +121,7 @@ defmodule Bcrypt.BaseTest do
         "$2a$10$.TtQJ4Jr6isd4Hp.mVfZeuh6Gws4rOQ/vdBczhDx.19NFK0Y84Dle"
       }
     ]
-    |> check_vectors
+    |> check_vectors()
   end
 
   test "salt should be shortened to 128 bits" do
@@ -145,7 +147,7 @@ defmodule Bcrypt.BaseTest do
         "$2a$05$CCCCCCCCCCCCCCCCCCCCC.VGOzA784oUp/Z0DY336zx7pLYAy0lwK"
       }
     ]
-    |> check_vectors
+    |> check_vectors()
   end
 
   test "Consistency tests" do
@@ -166,7 +168,7 @@ defmodule Bcrypt.BaseTest do
         "$2b$12$LeHKWR2bmrazi/6P22JpauX5my/eKwwKpWqL7L5iEByBnxNc76FRW"
       }
     ]
-    |> check_vectors
+    |> check_vectors()
   end
 
   test "raise error if salt has unsupported prefix" do

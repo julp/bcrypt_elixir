@@ -77,7 +77,9 @@ defmodule Bcrypt.Base do
   end
 
   defp hash(password, salt, prefix) when prefix in ["2a", "2b"] do
-    hash_nif(:binary.bin_to_list(password), :binary.bin_to_list(salt))
+    password
+    |> :binary.bin_to_list()
+    |> hash_nif(salt)
   end
 
   defp hash(_, _, prefix) do

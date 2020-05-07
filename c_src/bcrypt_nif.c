@@ -127,13 +127,12 @@ static int bcrypt_initsalt(int log_rounds, uint8_t *csalt, char *salt, uint8_t m
 /*
  * The core bcrypt function.
  */
-static int bcrypt_hashpass(const char *key, size_t key_len, const char *salt, char *encrypted,
-		size_t encryptedlen)
+static int bcrypt_hashpass(const char *key, size_t key_len, const char *salt, size_t salt_len, char *encrypted, size_t encryptedlen)
 {
 	blf_ctx state;
 	uint32_t rounds, i, k;
 	uint16_t j;
-	uint8_t salt_len, logr, minor;
+	uint8_t logr, minor;
 	uint8_t ciphertext[4 * BCRYPT_WORDS] = "OrpheanBeholderScryDoubt";
 	uint8_t csalt[BCRYPT_MAXSALT];
 	uint32_t cdata[BCRYPT_WORDS];
@@ -235,32 +234,39 @@ inval:
 
 static ERL_NIF_TERM bcrypt_hash_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
-	char pass[BCRYPT_MAXPASS];
-	char salt[BCRYPT_SALTSPACE + 1];
+	int pass_size;
+	ErlNifBinary salt;
 	ERL_NIF_TERM output;
-	unsigned char *output_data = enif_make_new_binary(env, BCRYPT_HASHSPACE, &output);
+	char pass[BCRYPT_MAXPASS];
+	char hash[BCRYPT_HASHSPACE];
 
-	if (argc != 2 || !enif_get_string(env, argv[0], pass, STR_SIZE(pass), ERL_NIF_LATIN1) ||
-			!enif_get_string(env, argv[1], salt, STR_SIZE(salt), ERL_NIF_LATIN1))
-		return enif_make_badarg(env);
+	if (
+		2 == argc
+		&& 0 != (pass_size = enif_get_string(env, argv[0], pass, STR_SIZE(pass), ERL_NIF_LATIN1))
+		&& enif_inspect_binary(env, argv[1], &salt)
+		&& 0 == bcrypt_hashpass((const char *) pass, (size_t) (pass_size < 0 ? STR_SIZE(pass) : (pass_size - 1)), (const char *) salt.data, salt.size, hash, BCRYPT_HASHSPACE)
+	) {
+		unsigned char *buffer;
 
-	if (bcrypt_hashpass((const char *)pass, strlen(pass), (const char *)salt,
-				(char *)output_data, BCRYPT_HASHSPACE) != 0)
-		return enif_make_badarg(env);
+		buffer = enif_make_new_binary(env, BCRYPT_HASHSPACE, &output);
+		memcpy(buffer, hash, BCRYPT_HASHSPACE);
+	} else {
+		output = enif_make_badarg(env);
+	}
 
 	return output;
 }
 
 static ERL_NIF_TERM bcrypt_checkpass_nif(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
-	int pass_len;
+	int pass_size;
 	ERL_NIF_TERM output;
 	ErlNifBinary goodhash;
 	char pass[BCRYPT_MAXPASS];
 
 	if (
 		2 != argc
-		|| (pass_len = enif_get_string(env, argv[0], pass, STR_SIZE(pass), ERL_NIF_LATIN1)) <= 0
+		|| 0 == (pass_size = enif_get_string(env, argv[0], pass, STR_SIZE(pass), ERL_NIF_LATIN1))
 		|| !enif_inspect_binary(env, argv[1], &goodhash)
 	) {
 		output = enif_make_badarg(env);
@@ -269,7 +275,7 @@ static ERL_NIF_TERM bcrypt_checkpass_nif(ErlNifEnv *env, int argc, const ERL_NIF
 		char hash[BCRYPT_HASHSPACE + 1];
 
 		hash[BCRYPT_HASHSPACE] = '\0';
-		match = 0 == bcrypt_hashpass((const char *) pass, (size_t) (pass_len - 1), (const char *) goodhash.data, hash, STR_SIZE(hash))
+		match = 0 == bcrypt_hashpass((const char *) pass, (size_t) (pass_size < 0 ? STR_SIZE(pass) : (pass_size - 1)), (const char *) goodhash.data, goodhash.size, hash, STR_SIZE(hash))
 			&& strlen(hash) == goodhash.size
 			&& 0 == secure_compare((const uint8_t *) hash, (const uint8_t *) goodhash.data, goodhash.size)
 		;
